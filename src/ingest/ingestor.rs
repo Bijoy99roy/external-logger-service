@@ -1,5 +1,12 @@
-use axum::{Json, extract::State, response::IntoResponse};
+use anyhow::Context;
+use axum::{
+    Json,
+    extract::{Query, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use chrono::DateTime;
+use serde::Deserialize;
 use serde_json::json;
 use tracing::{debug, warn};
 
@@ -50,6 +57,29 @@ pub async fn ingest_handler(
     }))
 }
 
+pub async fn history_handler(
+    State(mut store): State<RedisStore>,
+    Query(params): Query<HistoryParams>,
+) -> impl IntoResponse {
+    let count = match params.count {
+        Some(c) if c == 0 => return Err("Must be grater than zero"),
+        Some(c) => c,
+        None => 100,
+    };
+
+    let entries = store.tail(params.service.as_deref(), count).await.unwrap();
+    let fetched_log_count = entries.len();
+
+    Ok((
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "logs": entries,
+            "count": fetched_log_count,
+            "service": params.service
+        })),
+    ))
+}
+
 pub async fn health_check() -> impl IntoResponse {
     let version = std::env::var("SERVICE_VERSION").unwrap_or_else(|_| "unknown".to_string());
     Json(json!({
@@ -57,4 +87,10 @@ pub async fn health_check() -> impl IntoResponse {
         "service": "external-log-service",
         "version": version
     }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct HistoryParams {
+    pub service: Option<String>,
+    pub count: Option<usize>,
 }

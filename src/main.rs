@@ -54,6 +54,7 @@ async fn main() -> Result<()> {
 
     let app = Router::new()
         .route("/api/logs", post(ingest::ingestor::ingest_handler))
+        .route("/api/logs", get(ingest::ingestor::history_handler))
         .route("/health", get(ingest::ingestor::health_check))
         .fallback(not_found_handler)
         .with_state(store);

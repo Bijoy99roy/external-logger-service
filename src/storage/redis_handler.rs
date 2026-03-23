@@ -59,6 +59,39 @@ impl RedisStore {
 
         Ok(())
     }
+
+    pub async fn tail(&mut self, service: Option<&str>, count: usize) -> Result<Vec<LogEntry>> {
+        let stream = match service {
+            Some(svc) => format!("{}:{}", STREAM_PREFIX, svc),
+            None => GLOBAL_STREAM.to_string(),
+        };
+
+        let results: redis::streams::StreamRangeReply = redis::cmd("XREVRANGE")
+            .arg(&stream)
+            .arg("+")
+            .arg("-")
+            .arg("COUNT")
+            .arg(count)
+            .query_async(&mut self.conn)
+            .await
+            .unwrap_or_default();
+        println!("{:?}", results);
+        let mut entries: Vec<LogEntry> = results
+            .ids
+            .into_iter()
+            .filter_map(|item| {
+                item.map
+                    .get("entry")
+                    .and_then(|v| match v {
+                        redis::Value::BulkString(b) => String::from_utf8(b.clone()).ok(),
+                        _ => None,
+                    })
+                    .and_then(|s| serde_json::from_str(&s).ok())
+            })
+            .collect();
+        entries.reverse();
+        Ok(entries)
+    }
 }
 
 impl Clone for RedisStore {
