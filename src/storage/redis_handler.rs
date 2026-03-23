@@ -92,6 +92,26 @@ impl RedisStore {
         entries.reverse();
         Ok(entries)
     }
+
+    pub async fn list_services(&mut self) -> Result<Vec<String>> {
+        let pattern = format!("{}:*", STREAM_PREFIX);
+
+        let keys: Vec<String> = self.conn.keys(&pattern).await.context("Keys scan failed")?;
+
+        let services: Vec<String> = keys
+            .into_iter()
+            .filter_map(|k| {
+                let suffix = k.strip_prefix(&format!("{}:", STREAM_PREFIX))?;
+                if suffix == "__all__" {
+                    None
+                } else {
+                    Some(suffix.to_string())
+                }
+            })
+            .collect();
+
+        Ok(services)
+    }
 }
 
 impl Clone for RedisStore {

@@ -80,6 +80,20 @@ pub async fn history_handler(
     ))
 }
 
+pub async fn list_service_handler(State(mut store): State<RedisStore>) -> impl IntoResponse {
+    let mut services = store.list_services().await.unwrap();
+    services.sort();
+
+    let count = services.len();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "services": services,
+            "count": count
+        })),
+    )
+}
+
 pub async fn health_check() -> impl IntoResponse {
     let version = std::env::var("SERVICE_VERSION").unwrap_or_else(|_| "unknown".to_string());
     Json(json!({
