@@ -11,16 +11,21 @@ use serde_json::json;
 use tracing::{debug, warn};
 
 use crate::{
+    AppState,
     models::{IngestPayload, LogEntry},
     storage::RedisStore,
 };
 
 pub async fn ingest_handler(
-    State(mut store): State<RedisStore>,
+    State(state): State<AppState>,
     Json(payload): Json<IngestPayload>,
 ) -> impl IntoResponse {
     let mut stored = Vec::new();
     let mut failed = 0;
+
+    let mut store = state.redis.clone();
+
+    let broadcaster = state.broadcaster.clone();
 
     for entry in payload.logs {
         let lg_entry = LogEntry {
@@ -39,6 +44,7 @@ pub async fn ingest_handler(
                     id      = %lg_entry.id,
                     "Log entry persisted"
                 );
+                let _ = broadcaster.send(lg_entry.clone());
                 stored.push(lg_entry);
             }
             Err(e) => {
@@ -58,9 +64,10 @@ pub async fn ingest_handler(
 }
 
 pub async fn history_handler(
-    State(mut store): State<RedisStore>,
+    State(state): State<AppState>,
     Query(params): Query<HistoryParams>,
 ) -> impl IntoResponse {
+    let mut store = state.redis.clone();
     let count = match params.count {
         Some(c) if c == 0 => return Err("Must be grater than zero"),
         Some(c) => c,
@@ -80,7 +87,8 @@ pub async fn history_handler(
     ))
 }
 
-pub async fn list_service_handler(State(mut store): State<RedisStore>) -> impl IntoResponse {
+pub async fn list_service_handler(State(state): State<AppState>) -> impl IntoResponse {
+    let mut store = state.redis.clone();
     let mut services = store.list_services().await.unwrap();
     services.sort();
 

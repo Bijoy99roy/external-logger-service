@@ -1,4 +1,4 @@
-use crate::{config::Config, storage::RedisStore};
+use crate::{config::Config, models::LogEntry, storage::RedisStore};
 use anyhow::Result;
 use axum::{
     Json, Router,
@@ -15,11 +15,12 @@ mod config;
 mod ingest;
 mod models;
 mod storage;
+mod ws;
 // Shared application state
 #[derive(Clone)]
 pub struct AppState {
-    pub log_service: String,
-    pub broadcaster: broadcast::Sender<String>,
+    pub redis: RedisStore,
+    pub broadcaster: broadcast::Sender<LogEntry>,
 }
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -52,13 +53,21 @@ async fn main() -> Result<()> {
 
     let store = RedisStore::new(&config.redis_url, config.stream_max_len).await?;
 
+    let (broadcaster, _) = broadcast::channel::<LogEntry>(1024);
+
+    let state = AppState {
+        redis: store,
+        broadcaster,
+    };
+
     let app = Router::new()
         .route("/api/logs", post(ingest::ingestor::ingest_handler))
         .route("/api/logs", get(ingest::ingestor::history_handler))
         .route("/api/services", get(ingest::ingestor::list_service_handler))
+        .route("/ws/logs", get(ws::ws_handler::ws_handler))
         .route("/health", get(ingest::ingestor::health_check))
         .fallback(not_found_handler)
-        .with_state(store);
+        .with_state(state);
     let addr = format!("0.0.0.0:{}", config.http_port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     info!(addr = addr, "HTTP server listening");

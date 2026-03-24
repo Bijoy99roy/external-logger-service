@@ -84,3 +84,25 @@ pub struct IngestEntry {
 pub struct IngestPayload {
     pub logs: Vec<IngestEntry>,
 }
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct WSFilter {
+    pub service: Option<String>,
+    pub min_level: Option<LogLevel>,
+}
+
+impl WSFilter {
+    pub fn matches(&self, entry: &LogEntry) -> bool {
+        if let Some(ref svc) = self.service {
+            if &entry.service != svc {
+                return false;
+            }
+        }
+        if let Some(ref min) = self.min_level {
+            if &entry.level < min {
+                return false;
+            }
+        }
+        true
+    }
+}
