@@ -11,15 +11,20 @@ use futures::{SinkExt, StreamExt};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
-use crate::{AppState, models::WSFilter};
+use crate::{
+    AppState,
+    errors::{LogSystemError, LogSystemResult},
+    models::WSFilter,
+};
 
 pub async fn ws_handler(
     ws: WebSocketUpgrade,
     Query(filter): Query<WSFilter>,
     State(state): State<AppState>,
-) -> impl IntoResponse {
+) -> LogSystemResult<impl IntoResponse> {
     validate_filter(&filter).unwrap();
-    ws.on_upgrade(move |socket| handle_socket(socket, filter, state))
+
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, filter, state)))
 }
 
 async fn handle_socket(socket: WebSocket, ws_filter: WSFilter, state: AppState) {
@@ -129,14 +134,18 @@ async fn handle_socket(socket: WebSocket, ws_filter: WSFilter, state: AppState) 
     info!("WebSocket client disconnected");
 }
 
-pub fn validate_filter(filter: &WSFilter) -> Result<(), &'static str> {
+pub fn validate_filter(filter: &WSFilter) -> LogSystemResult<()> {
     if let Some(ref svc) = filter.service {
         if svc.is_empty() {
-            return Err("Service field must not be empty".into());
+            return Err(LogSystemError::Validation(
+                "Service field must not be empty".into(),
+            ));
         }
 
         if svc.len() > 64 {
-            return Err("Servic field must be of 64 character of fewer".into());
+            return Err(LogSystemError::Validation(
+                "Servic field must be of 64 character of fewer".into(),
+            ));
         }
     }
 

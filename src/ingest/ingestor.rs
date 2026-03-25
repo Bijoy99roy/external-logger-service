@@ -12,6 +12,7 @@ use tracing::{debug, warn};
 
 use crate::{
     AppState,
+    errors::{LogSystemError, LogSystemResult},
     models::{IngestPayload, LogEntry},
     storage::RedisStore,
 };
@@ -19,7 +20,7 @@ use crate::{
 pub async fn ingest_handler(
     State(state): State<AppState>,
     Json(payload): Json<IngestPayload>,
-) -> impl IntoResponse {
+) -> LogSystemResult<impl IntoResponse> {
     let mut stored = Vec::new();
     let mut failed = 0;
 
@@ -57,25 +58,36 @@ pub async fn ingest_handler(
             }
         }
     }
-    Json(json!({
+    Ok(Json(json!({
         "inserted": stored.len(),
         "failed": failed,
-    }))
+    })))
 }
 
 pub async fn history_handler(
     State(state): State<AppState>,
     Query(params): Query<HistoryParams>,
-) -> impl IntoResponse {
+) -> LogSystemResult<impl IntoResponse> {
     let mut store = state.redis.clone();
     let count = match params.count {
-        Some(c) if c == 0 => return Err("Must be grater than zero"),
+        Some(c) if c == 0 => {
+            return Err(LogSystemError::Validation(
+                "Must be greater than zero".into(),
+            ));
+        }
         Some(c) => c,
         None => 100,
     };
 
     let entries = store.tail(params.service.as_deref(), count).await.unwrap();
     let fetched_log_count = entries.len();
+
+    if fetched_log_count == 0 {
+        return Err(LogSystemError::NotFound(format!(
+            "Service {} has not sent any logs",
+            params.service.as_deref().unwrap_or("")
+        )));
+    }
 
     Ok((
         StatusCode::OK,
@@ -87,28 +99,30 @@ pub async fn history_handler(
     ))
 }
 
-pub async fn list_service_handler(State(state): State<AppState>) -> impl IntoResponse {
+pub async fn list_service_handler(
+    State(state): State<AppState>,
+) -> LogSystemResult<impl IntoResponse> {
     let mut store = state.redis.clone();
     let mut services = store.list_services().await.unwrap();
     services.sort();
 
     let count = services.len();
-    (
+    Ok((
         StatusCode::OK,
         Json(serde_json::json!({
             "services": services,
             "count": count
         })),
-    )
+    ))
 }
 
-pub async fn health_check() -> impl IntoResponse {
+pub async fn health_check() -> LogSystemResult<impl IntoResponse> {
     let version = std::env::var("SERVICE_VERSION").unwrap_or_else(|_| "unknown".to_string());
-    Json(json!({
+    Ok(Json(json!({
         "status": "ok",
         "service": "external-log-service",
         "version": version
-    }))
+    })))
 }
 
 #[derive(Debug, Deserialize)]

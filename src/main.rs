@@ -12,6 +12,7 @@ use tokio::sync::broadcast;
 use tracing::info;
 
 mod config;
+mod errors;
 mod ingest;
 mod models;
 mod storage;
