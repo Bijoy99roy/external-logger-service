@@ -23,6 +23,10 @@ impl RedisStore {
         Ok(Self { conn, max_len })
     }
 
+    pub async fn get_connection(&self) -> ConnectionManager {
+        self.conn.clone()
+    }
+
     #[instrument(skip(self, entry), fields(service = %entry.service, level = %entry.level, id = %entry.id))]
     pub async fn append(&mut self, entry: &LogEntry) -> Result<()> {
         let payload = serde_json::to_string(entry).context("Failed to serialize Logentry")?;
@@ -111,6 +115,17 @@ impl RedisStore {
             .collect();
 
         Ok(services)
+    }
+
+    pub async fn service_exists(&mut self, service: &str) -> Result<bool> {
+        let key = format!("{}:{}", STREAM_PREFIX, service);
+
+        let count: u64 = redis::cmd("EXISTS")
+            .arg(&key)
+            .query_async(&mut self.conn)
+            .await
+            .with_context(|| format!("EXISTS check for stream {} failed", key))?;
+        Ok(count > 0)
     }
 }
 

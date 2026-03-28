@@ -16,6 +16,9 @@ mod errors;
 mod ingest;
 mod models;
 mod storage;
+#[cfg(test)]
+mod tests;
+mod validation;
 mod ws;
 // Shared application state
 #[derive(Clone)]
@@ -23,26 +26,29 @@ pub struct AppState {
     pub redis: RedisStore,
     pub broadcaster: broadcast::Sender<LogEntry>,
 }
+
+pub fn build_app(state: AppState) -> Router {
+    Router::new()
+        .route("/api/logs", post(ingest::ingestor::ingest_handler))
+        .route("/api/logs", get(ingest::ingestor::history_handler))
+        .route("/api/services", get(ingest::ingestor::list_service_handler))
+        .route("/ws/logs", get(ws::ws_handler::ws_handler))
+        .route("/health", get(ingest::ingestor::health_check))
+        .fallback(not_found_handler)
+        .with_state(state)
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenv().ok();
-    let use_json = std::env::var("LOG_FORMAT").as_deref() == Ok("json");
+
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| "tower_http=warn".into());
 
-    if use_json {
-        tracing_subscriber::fmt()
-            .json()
-            .with_env_filter(filter)
-            .with_current_span(true)
-            .with_span_list(false)
-            .init();
-    } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(filter)
-            .with_target(true)
-            .init();
-    }
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .with_target(true)
+        .init();
 
     let config = Config::from_env();
     info!(
@@ -61,14 +67,7 @@ async fn main() -> Result<()> {
         broadcaster,
     };
 
-    let app = Router::new()
-        .route("/api/logs", post(ingest::ingestor::ingest_handler))
-        .route("/api/logs", get(ingest::ingestor::history_handler))
-        .route("/api/services", get(ingest::ingestor::list_service_handler))
-        .route("/ws/logs", get(ws::ws_handler::ws_handler))
-        .route("/health", get(ingest::ingestor::health_check))
-        .fallback(not_found_handler)
-        .with_state(state);
+    let app = build_app(state);
     let addr = format!("0.0.0.0:{}", config.http_port);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
     info!(addr = addr, "HTTP server listening");
