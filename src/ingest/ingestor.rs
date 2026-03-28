@@ -15,6 +15,7 @@ use crate::{
     errors::{LogSystemError, LogSystemResult},
     models::{IngestPayload, LogEntry},
     storage::RedisStore,
+    validation::validate_ingest_input,
 };
 
 pub async fn ingest_handler(
@@ -27,7 +28,8 @@ pub async fn ingest_handler(
     let mut store = state.redis.clone();
 
     let broadcaster = state.broadcaster.clone();
-
+    println!("{}", payload.logs.len());
+    validate_ingest_input(&payload)?;
     for entry in payload.logs {
         let lg_entry = LogEntry {
             id: uuid::Uuid::new_v4().to_string(),
@@ -82,7 +84,12 @@ pub async fn history_handler(
     let entries = store.tail(params.service.as_deref(), count).await.unwrap();
     let fetched_log_count = entries.len();
 
-    if fetched_log_count == 0 {
+    let service_exists = store
+        .service_exists(params.service.as_deref().unwrap_or(""))
+        .await
+        .unwrap();
+    println!("format: {}", service_exists);
+    if !service_exists {
         return Err(LogSystemError::NotFound(format!(
             "Service {} has not sent any logs",
             params.service.as_deref().unwrap_or("")
